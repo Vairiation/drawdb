@@ -171,18 +171,21 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
       } else if (e.keyword === "type") {
         if (e.resource === "enum") {
           const newEnum = {
+            id: nanoid(),
             name: e.name.name,
             values: e.create_definitions.value.map((x) => x.value),
           };
           enums.push(newEnum);
         } else if (Array.isArray(e.create_definitions)) {
           const type = {
+            id: nanoid(),
             name: e.name.name,
             fields: [],
           };
           e.create_definitions.forEach((d) => {
             const field = {};
             if (d.resource === "column") {
+              field.id = nanoid();
               field.name = d.column.column.expr.value;
 
               let type = d.definition.dataType;

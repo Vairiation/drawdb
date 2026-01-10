@@ -321,11 +321,35 @@ export default function Modal({
       /^\s*(?:["`]([^"`]+)["`]|([a-zA-Z0-9_]+))\s+([a-zA-Z0-9_]+)(?:\s+|$|,|\)|;)/gm;
 
     const restrictedColNames = new Set([
+      "CREATE",
+      "ALTER",
+      "DROP",
       "CONSTRAINT",
       "PRIMARY",
       "FOREIGN",
       "UNIQUE",
       "CHECK",
+      "INDEX",
+      "COMMENT",
+      "ON",
+      "UPDATE",
+      "DELETE",
+      "INSERT",
+      "SELECT",
+      "FROM",
+      "WHERE",
+      "COLUMN",
+      "TABLE",
+      "TYPE",
+      "ENUM",
+      "when",
+      "case",
+      "then",
+      "else",
+      "end",
+      "if",
+      "exists",
+      "add",
     ]);
 
     while ((match = columnRegex.exec(processedSQL)) !== null) {

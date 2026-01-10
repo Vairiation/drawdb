@@ -3,9 +3,8 @@ import { arrangeTables } from "../arrangeTables";
 import { Cardinality, Constraint } from "../../data/constants";
 import { nanoid } from "nanoid";
 
-const parser = new Parser();
-
-export function fromDBML(src) {
+export function fromDBML(src, options = {}) {
+  const parser = new Parser();
   const ast = parser.parse(src, "dbmlv2");
 
   const tables = [];
@@ -121,7 +120,9 @@ export function fromDBML(src) {
 
   const diagram = { tables, enums, relationships };
 
-  arrangeTables(diagram);
+  if (!options.skipLayout) {
+    arrangeTables(diagram);
+  }
 
   return diagram;
 }
