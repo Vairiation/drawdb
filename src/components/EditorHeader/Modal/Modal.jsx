@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { DB, MODAL, STATUS, State } from "../../../data/constants";
 import { databases } from "../../../data/databases";
 import { db } from "../../../data/db";
+import { defaultTypes, postgresTypes } from "../../../data/datatypes";
 import {
   useAreas,
   useDiagram,
@@ -135,18 +136,18 @@ export default function Modal({
                 t.id
                   ? t
                   : {
-                      ...t,
-                      id: nanoid(),
-                      fields: t.fields.map((f) =>
-                        f.id ? f : { ...f, id: nanoid() },
-                      ),
-                    },
+                    ...t,
+                    id: nanoid(),
+                    fields: t.fields.map((f) =>
+                      f.id ? f : { ...f, id: nanoid() },
+                    ),
+                  },
               ),
             );
           }
           setEnums(
             diagram.enums.map((e) => (!e.id ? { ...e, id: nanoid() } : e)) ??
-              [],
+            [],
           );
           window.name = `d ${diagram.id}`;
           setSaveState(State.SAVING);
@@ -173,7 +174,12 @@ export default function Modal({
       } else {
         const parser = new Parser();
 
-        ast = parser.astify(importSource.src, {
+        let src = importSource.src;
+        if (targetDatabase === DB.POSTGRES) {
+          src = preprocessSQL(src);
+        }
+
+        ast = parser.astify(src, {
           database: targetDatabase,
         });
       }
@@ -225,6 +231,128 @@ export default function Modal({
         message: `Please check for syntax errors or let us know about the error.`,
       });
     }
+  };
+
+  const preprocessSQL = (sql) => {
+    let processedSQL = sql;
+
+    // 1. Fix TIMETZ issue
+    processedSQL = processedSQL.replace(/\bTIMETZ\b/gi, "TIME WITH TIME ZONE");
+
+    // Fix ARRAY type syntax error (replace standalone ARRAY with TEXT[])
+    processedSQL = processedSQL.replace(/\bARRAY\b(?!\s*\[)/gi, "TEXT[]");
+
+    // 2. Smart USER-DEFINED resolution
+    // Replace USER-DEFINED with the type found in the default value cast (e.g. DEFAULT 'val'::my_type)
+    processedSQL = processedSQL.replace(
+      /(USER-DEFINED)(.*?DEFAULT\s+'[^']+'::)("?[a-zA-Z0-9_]+"?)(\[\])?/g,
+      (match, p1, p2, p3) => {
+        return `${p3}${p2}${p3}`;
+      },
+    );
+
+    // 3. Cleanup specific double-word types casts (longest match first)
+    processedSQL = processedSQL.replace(/::character varying(\[\])?/gi, "");
+
+    // 4. Cleanup generic type casts
+    processedSQL = processedSQL.replace(/::"?[a-zA-Z0-9_]+"?(\[\])?/g, "");
+
+    // 5. Fallback: Replace any remaining USER-DEFINED with TEXT
+    processedSQL = processedSQL.replace(/USER-DEFINED/g, "TEXT");
+
+    // 6. Stub missing types
+    const definedTypes = new Set();
+    const createTypeRegex =
+      /CREATE\s+TYPE\s+(?:["`]([^"`]+)["`]|([a-zA-Z0-9_]+))/gi;
+    let match;
+    while ((match = createTypeRegex.exec(processedSQL)) !== null) {
+      definedTypes.add(match[1] || match[2]);
+    }
+
+    const builtins = new Set([
+      ...Object.keys(postgresTypes),
+      ...Object.keys(defaultTypes),
+      "TIMETZ",
+      "TIMESTAMPTZ",
+      "UUID",
+      "JSONB",
+      "BIGSERIAL",
+      "SERIAL",
+      "SMALLSERIAL",
+      "TSVECTOR",
+      "TSQUERY",
+      "XML",
+      "MONEY",
+      "BYTEA",
+      "INET",
+      "CIDR",
+      "MACADDR",
+      "MACADDR8",
+      "BIT",
+      "VARBIT",
+      "BOX",
+      "CIRCLE",
+      "LINE",
+      "LSEG",
+      "PATH",
+      "POINT",
+      "POLYGON",
+      "CHARACTER",
+      "VARYING",
+      "TEXT",
+      "TABLE", // Keyword often matched at start of line
+      "CONSTRAINT", // Keyword often matched at start of line
+      "PRIMARY",
+      "FOREIGN",
+      "KEY",
+      "REFERENCES",
+      "UNIQUE",
+      "CHECK",
+      "WITH",
+      "WITHOUT",
+      "ZONE",
+      "ARRAY",
+    ]);
+
+    const usedTypes = new Set();
+    // Regex to match column definitions even with unquoted names
+    // Captures: 1=quoted_name, 2=unquoted_name, 3=type
+    const columnRegex =
+      /^\s*(?:["`]([^"`]+)["`]|([a-zA-Z0-9_]+))\s+([a-zA-Z0-9_]+)(?:\s+|$|,|\)|;)/gm;
+
+    const restrictedColNames = new Set([
+      "CONSTRAINT",
+      "PRIMARY",
+      "FOREIGN",
+      "UNIQUE",
+      "CHECK",
+    ]);
+
+    while ((match = columnRegex.exec(processedSQL)) !== null) {
+      const colName = match[1] || match[2];
+      if (restrictedColNames.has(colName.toUpperCase())) continue;
+      usedTypes.add(match[3]);
+    }
+
+    const missingTypes = [];
+    usedTypes.forEach((t) => {
+      if (definedTypes.has(t) || definedTypes.has(`"${t}"`)) return;
+
+      const upper = t.toUpperCase();
+      if (builtins.has(upper)) return;
+      if (["VARCHAR", "INT", "SERIAL"].includes(upper)) return;
+
+      missingTypes.push(t);
+    });
+
+    if (missingTypes.length > 0) {
+      const stubs = missingTypes
+        .map((t) => `CREATE TYPE "${t}" AS ENUM ('stub');`)
+        .join("\n");
+      processedSQL = stubs + "\n" + processedSQL;
+    }
+
+    return processedSQL;
   };
 
   const createNewDiagram = (id) => {

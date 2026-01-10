@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
-import { Cardinality, Constraint, DB } from "../../data/constants";
-import { dbToTypes } from "../../data/datatypes";
-import { buildSQLFromAST } from "./shared";
+import { Cardinality, Constraint, DB } from "../../data/constants.js";
+import { dbToTypes } from "../../data/datatypes_patched.js";
+import { buildSQLFromAST } from "./shared_patched.js";
 
 const affinity = {
   [DB.POSTGRES]: new Proxy(
@@ -24,8 +24,6 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
   const relationships = [];
   const types = [];
   const enums = [];
-
-  const pendingRelationships = [];
 
   const parseSingleStatement = (e) => {
     if (e.type === "create") {
@@ -118,19 +116,6 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
             }
 
             table.fields.push(field);
-
-            // Handle inline foreign key
-            if (d.reference_definition) {
-              pendingRelationships.push({
-                startTableName: table.name,
-                startFieldName: field.name,
-                endTableName: d.reference_definition.table[0].table,
-                endFieldName: d.reference_definition.definition[0].column.expr.value,
-                onUpdate: d.reference_definition.on_action.find(c => c.type === 'on update'),
-                onDelete: d.reference_definition.on_action.find(c => c.type === 'on delete')
-              });
-            }
-
           } else if (d.resource === "constraint") {
             if (d.constraint_type === "primary key") {
               d.definition.forEach((c) => {
@@ -141,15 +126,115 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
                 });
               });
             } else if (d.constraint_type.toLowerCase() === "foreign key") {
-              pendingRelationships.push({
-                startTableName: table.name,
-                startFieldName: d.definition[0].column.expr.value,
-                endTableName: d.reference_definition.table[0].table,
-                endFieldName: d.reference_definition.definition[0].column.expr.value,
-                onUpdate: d.reference_definition.on_action.find(c => c.type === 'on update'),
-                onDelete: d.reference_definition.on_action.find(c => c.type === 'on delete')
+              const relationship = {};
+              const startTableId = table.id;
+              const startTableName = e.table[0].table;
+              const startFieldName = d.definition[0].column.expr.value;
+              const endTableName = d.reference_definition.table[0].table;
+              const endFieldName =
+                d.reference_definition.definition[0].column.expr.value;
+
+              const endTable = tables.find((t) => t.name === endTableName);
+              if (!endTable) return;
+
+              const endField = endTable.fields.find(
+                (f) => f.name === endFieldName,
+              );
+              if (!endField) return;
+
+              const startField = table.fields.find(
+                (f) => f.name === startFieldName,
+              );
+              if (!startField) return;
+
+              relationship.name = `fk_${startTableName}_${startFieldName}_${endTableName}`;
+              relationship.startTableId = startTableId;
+              relationship.endTableId = endTable.id;
+              relationship.endFieldId = endField.id;
+              relationship.startFieldId = startField.id;
+              relationship.id = nanoid();
+
+              let updateConstraint = Constraint.NONE;
+              let deleteConstraint = Constraint.NONE;
+              d.reference_definition.on_action.forEach((c) => {
+                if (c.type === "on update") {
+                  updateConstraint = c.value.value;
+                  updateConstraint =
+                    updateConstraint[0].toUpperCase() +
+                    updateConstraint.substring(1);
+                } else if (c.type === "on delete") {
+                  deleteConstraint = c.value.value;
+                  deleteConstraint =
+                    deleteConstraint[0].toUpperCase() +
+                    deleteConstraint.substring(1);
+                }
               });
+
+              relationship.updateConstraint = updateConstraint;
+              relationship.deleteConstraint = deleteConstraint;
+              if (startField.unique) {
+                relationship.cardinality = Cardinality.ONE_TO_ONE;
+              } else {
+                relationship.cardinality = Cardinality.MANY_TO_ONE;
+              }
+              relationships.push(relationship);
             }
+          }
+
+          if (d.reference_definition) {
+            const relationship = {};
+            const startTableName = table.name;
+            const startFieldName = field.name;
+            const endTableName = d.reference_definition.table[0].table;
+            const endFieldName =
+              d.reference_definition.definition[0].column.expr.value;
+            let updateConstraint = Constraint.NONE;
+            let deleteConstraint = Constraint.NONE;
+            d.reference_definition.on_action.forEach((c) => {
+              if (c.type === "on update") {
+                updateConstraint = c.value.value;
+                updateConstraint =
+                  updateConstraint[0].toUpperCase() +
+                  updateConstraint.substring(1);
+              } else if (c.type === "on delete") {
+                deleteConstraint = c.value.value;
+                deleteConstraint =
+                  deleteConstraint[0].toUpperCase() +
+                  deleteConstraint.substring(1);
+              }
+            });
+
+            const startTableId = tables.length;
+
+            const endTable = tables.find((t) => t.name === endTableName);
+            if (!endTable) return;
+
+            const endField = endTable.fields.findIndex(
+              (f) => f.name === endFieldName,
+            );
+            if (!endField) return;
+
+            const startField = table.fields.find(
+              (f) => f.name === startFieldName,
+            );
+            if (!startField) return;
+
+            relationship.name = `fk_${startTableName}_${startFieldName}_${endTableName}`;
+            relationship.startTableId = startTableId;
+            relationship.startFieldId = startField.id;
+            relationship.endTableId = endTable.id;
+            relationship.endFieldId = endField.id;
+            relationship.updateConstraint = updateConstraint;
+            relationship.deleteConstraint = deleteConstraint;
+            relationship.id = nanoid();
+
+            if (startField.unique) {
+              relationship.cardinality = Cardinality.ONE_TO_ONE;
+            } else {
+              relationship.cardinality = Cardinality.MANY_TO_ONE;
+            }
+
+            relationships.push(relationship);
           }
         });
         tables.push(table);
@@ -212,14 +297,66 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
             expr.create_definitions.constraint_type.toLowerCase() ===
             "foreign key"
           ) {
-            pendingRelationships.push({
-              startTableName: e.table[0].table,
-              startFieldName: expr.create_definitions.definition[0].column.expr.value,
-              endTableName: expr.create_definitions.reference_definition.table[0].table,
-              endFieldName: expr.create_definitions.reference_definition.definition[0].column.expr.value,
-              onUpdate: expr.create_definitions.reference_definition.on_action.find(c => c.type === 'on update'),
-              onDelete: expr.create_definitions.reference_definition.on_action.find(c => c.type === 'on delete')
-            });
+            const relationship = {};
+            const startTableName = e.table[0].table;
+            const startFieldName =
+              expr.create_definitions.definition[0].column.expr.value;
+            const endTableName =
+              expr.create_definitions.reference_definition.table[0].table;
+            const endFieldName =
+              expr.create_definitions.reference_definition.definition[0].column
+                .expr.value;
+            let updateConstraint = Constraint.NONE;
+            let deleteConstraint = Constraint.NONE;
+            expr.create_definitions.reference_definition.on_action.forEach(
+              (c) => {
+                if (c.type === "on update") {
+                  updateConstraint = c.value.value;
+                  updateConstraint =
+                    updateConstraint[0].toUpperCase() +
+                    updateConstraint.substring(1);
+                } else if (c.type === "on delete") {
+                  deleteConstraint = c.value.value;
+                  deleteConstraint =
+                    deleteConstraint[0].toUpperCase() +
+                    deleteConstraint.substring(1);
+                }
+              },
+            );
+
+            const startTable = tables.find((t) => t.name === startTableName);
+            if (!startTable) return;
+
+            const endTable = tables.find((t) => t.name === endTableName);
+            if (!endTable) return;
+
+            const endField = endTable.fields.find(
+              (f) => f.name === endFieldName,
+            );
+            if (!endField) return;
+
+            const startField = startTable.fields.find(
+              (f) => f.name === startFieldName,
+            );
+            if (!startField) return;
+
+            relationship.name = `fk_${startTableName}_${startFieldName}_${endTableName}`;
+            relationship.startTableId = startTable.id;
+            relationship.startFieldId = startField.id;
+            relationship.endTableId = endTable.id;
+            relationship.endFieldId = endField.id;
+            relationship.updateConstraint = updateConstraint;
+            relationship.deleteConstraint = deleteConstraint;
+            relationship.cardinality = Cardinality.ONE_TO_ONE;
+            relationship.id = nanoid();
+
+            if (startField.unique) {
+              relationship.cardinality = Cardinality.ONE_TO_ONE;
+            } else {
+              relationship.cardinality = Cardinality.MANY_TO_ONE;
+            }
+
+            relationships.push(relationship);
           }
         });
       }
@@ -248,49 +385,6 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
   } else {
     parseSingleStatement(ast);
   }
-
-  // Resolve pending relationships
-  pendingRelationships.forEach(r => {
-    const startTable = tables.find((t) => t.name === r.startTableName);
-    const endTable = tables.find((t) => t.name === r.endTableName);
-
-    if (!startTable || !endTable) return;
-
-    const startField = startTable.fields.find((f) => f.name === r.startFieldName);
-    const endField = endTable.fields.find((f) => f.name === r.endFieldName);
-
-    if (!startField || !endField) return;
-
-    const relationship = {};
-    relationship.name = `fk_${r.startTableName}_${r.startFieldName}_${r.endTableName}`;
-    relationship.startTableId = startTable.id;
-    relationship.startFieldId = startField.id;
-    relationship.endTableId = endTable.id;
-    relationship.endFieldId = endField.id;
-    relationship.id = nanoid();
-
-    let updateConstraint = Constraint.NONE;
-    if (r.onUpdate) {
-      updateConstraint = r.onUpdate.value.value;
-      updateConstraint = updateConstraint[0].toUpperCase() + updateConstraint.substring(1);
-    }
-    relationship.updateConstraint = updateConstraint;
-
-    let deleteConstraint = Constraint.NONE;
-    if (r.onDelete) {
-      deleteConstraint = r.onDelete.value.value;
-      deleteConstraint = deleteConstraint[0].toUpperCase() + deleteConstraint.substring(1);
-    }
-    relationship.deleteConstraint = deleteConstraint;
-
-    if (startField.unique) {
-      relationship.cardinality = Cardinality.ONE_TO_ONE;
-    } else {
-      relationship.cardinality = Cardinality.MANY_TO_ONE;
-    }
-
-    relationships.push(relationship);
-  });
 
   return { tables, relationships, types, enums };
 }
