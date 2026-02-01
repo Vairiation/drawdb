@@ -161,21 +161,22 @@ export function toDBML(diagram) {
                 )}${columnSettings(field, diagram.database)}`,
             )
             .join("\n")}${table.indices.length > 0
-            ? "\n\n\tindexes {\n" +
-            table.indices
-              .map(
-                (index) =>
-                  `\t\t(${index.fields
-                    .map((f) => quoteIdentifier(f))
-                    .join(", ")}) [ name: '${index.name
-                  }'${index.unique ? ", unique" : ""} ]`,
-              )
-              .join("\n") +
-            "\n\t}"
-            : ""
-          }${table.comment && table.comment.trim() !== ""
-            ? `\n\n\tNote: ${processComment(table.comment)}`
-            : ""
+              ? "\n\n\tindexes {\n" +
+              table.indices
+                .map(
+                  (index) =>
+                    `\t\t(${index.fields
+                      .map((f) => quoteIdentifier(f))
+                      .join(", ")}) [ name: '${index.name
+                    }'${index.unique ? ", unique" : ""} ]`,
+                )
+                .join("\n") +
+              "\n\t}"
+              : ""
+          }${`\n\n\tNote: ${processComment(
+            (table.comment ?? "") +
+            `\n{"x": ${Math.round(table.x)}, "y": ${Math.round(table.y)}}`,
+          )}`
           }\n}`,
       )
       .join("\n\n")}\n\n${diagram.relationships

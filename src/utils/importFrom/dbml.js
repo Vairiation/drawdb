@@ -16,10 +16,24 @@ export function fromDBML(src, options = {}) {
       let parsedTable = {};
       parsedTable.id = nanoid();
       parsedTable.name = table.name;
-      parsedTable.comment = table.note ?? "";
       parsedTable.color = table.headerColor ?? "#175e7a";
       parsedTable.fields = [];
       parsedTable.indices = [];
+
+      let note = table.note ?? "";
+      let x = null;
+      let y = null;
+      const layoutMatch = note.match(/(?:^|\n)\{"x":\s*([\d\.-]+),\s*"y":\s*([\d\.-]+)\}$/);
+      if (layoutMatch) {
+        x = parseFloat(layoutMatch[1]);
+        y = parseFloat(layoutMatch[2]);
+        note = note.substring(0, layoutMatch.index);
+      }
+      parsedTable.comment = note;
+      if (x != null && y != null) {
+        parsedTable.x = x;
+        parsedTable.y = y;
+      }
 
       for (const column of table.fields) {
         const field = {};
@@ -30,7 +44,7 @@ export function fromDBML(src, options = {}) {
         field.default = column.dbdefault?.value ?? "";
         field.check = "";
         field.primary = !!column.pk;
-        field.unique = !!column.pk;
+        field.unique = !!column.unique;
         field.notNull = !!column.not_null;
         field.increment = !!column.increment;
         field.comment = column.note ?? "";
@@ -46,6 +60,15 @@ export function fromDBML(src, options = {}) {
         parsedIndex.name =
           idx.name ?? `${parsedTable.name}_index_${parsedIndex.id}`;
         parsedIndex.unique = !!idx.unique;
+
+        if (idx.pk) {
+          idx.columns.forEach((col) => {
+            const field = parsedTable.fields.find((f) => f.name === col.value);
+            if (field) {
+              field.primary = true;
+            }
+          });
+        }
 
         parsedTable.indices.push(parsedIndex);
       }
@@ -119,8 +142,9 @@ export function fromDBML(src, options = {}) {
   }
 
   const diagram = { tables, enums, relationships };
+  const hasLayout = tables.every((t) => t.x !== undefined && t.y !== undefined);
 
-  if (!options.skipLayout) {
+  if (!options.skipLayout && !hasLayout) {
     arrangeTables(diagram);
   }
 

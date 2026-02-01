@@ -239,9 +239,9 @@ export default function ControlPanel({
             indices: table.indices.map((index) =>
               index.id === a.iid
                 ? {
-                    ...index,
-                    ...a.undo,
-                  }
+                  ...index,
+                  ...a.undo,
+                }
                 : index,
             ),
           });
@@ -420,9 +420,9 @@ export default function ControlPanel({
             indices: table.indices.map((index) =>
               index.id === a.iid
                 ? {
-                    ...index,
-                    ...a.redo,
-                  }
+                  ...index,
+                  ...a.redo,
+                }
                 : index,
             ),
           });
@@ -786,18 +786,18 @@ export default function ControlPanel({
                 t.id
                   ? t
                   : {
-                      ...t,
-                      id: nanoid(),
-                      fields: t.fields.map((f) =>
-                        f.id ? f : { ...f, id: nanoid() },
-                      ),
-                    },
+                    ...t,
+                    id: nanoid(),
+                    fields: t.fields.map((f) =>
+                      f.id ? f : { ...f, id: nanoid() },
+                    ),
+                  },
               ),
             );
           }
           setEnums(
             diagram.enums.map((e) => (!e.id ? { ...e, id: nanoid() } : e)) ??
-              [],
+            [],
           );
           window.name = `d ${diagram.id}`;
         } else {
@@ -829,31 +829,31 @@ export default function ControlPanel({
         children: [
           ...(recentlyOpenedDiagrams && recentlyOpenedDiagrams.length > 0
             ? [
-                ...recentlyOpenedDiagrams.map((diagram) => ({
-                  name: diagram.name,
-                  label: DateTime.fromJSDate(new Date(diagram.lastModified))
-                    .setLocale(i18n.language)
-                    .toRelative(),
-                  function: async () => {
-                    await loadDiagram(diagram.id);
-                    save();
-                  },
-                })),
-                { divider: true },
-                {
-                  name: t("see_all"),
-                  function: () => open(),
+              ...recentlyOpenedDiagrams.map((diagram) => ({
+                name: diagram.name,
+                label: DateTime.fromJSDate(new Date(diagram.lastModified))
+                  .setLocale(i18n.language)
+                  .toRelative(),
+                function: async () => {
+                  await loadDiagram(diagram.id);
+                  save();
                 },
-              ]
+              })),
+              { divider: true },
+              {
+                name: t("see_all"),
+                function: () => open(),
+              },
+            ]
             : [
-                {
-                  name: t("no_saved_diagrams"),
-                  disabled: true,
-                },
-              ]),
+              {
+                name: t("no_saved_diagrams"),
+                disabled: true,
+              },
+            ]),
         ],
 
-        function: () => {},
+        function: () => { },
       },
       save: {
         function: save,
@@ -1269,7 +1269,7 @@ export default function ControlPanel({
             },
           },
         ],
-        function: () => {},
+        function: () => { },
       },
       exit: {
         function: () => {
@@ -1501,7 +1501,7 @@ export default function ControlPanel({
             function: () => setSettings((prev) => ({ ...prev, mode: "dark" })),
           },
         ],
-        function: () => {},
+        function: () => { },
       },
       zoom_in: {
         function: zoomIn,
@@ -1536,6 +1536,46 @@ export default function ControlPanel({
       table_width: {
         function: () => setModal(MODAL.TABLE_WIDTH),
         disabled: layout.readOnly,
+      },
+      database_type: {
+        children: [
+          {
+            name: databases[DB.MYSQL].name,
+            function: () => setDatabase(DB.MYSQL),
+            active: database === DB.MYSQL,
+          },
+          {
+            name: databases[DB.POSTGRES].name,
+            function: () => setDatabase(DB.POSTGRES),
+            active: database === DB.POSTGRES,
+          },
+          {
+            name: databases[DB.SQLITE].name,
+            function: () => setDatabase(DB.SQLITE),
+            active: database === DB.SQLITE,
+          },
+          {
+            name: databases[DB.MARIADB].name,
+            function: () => setDatabase(DB.MARIADB),
+            active: database === DB.MARIADB,
+          },
+          {
+            name: databases[DB.MSSQL].name,
+            function: () => setDatabase(DB.MSSQL),
+            active: database === DB.MSSQL,
+          },
+          {
+            name: databases[DB.ORACLESQL].name,
+            function: () => setDatabase(DB.ORACLESQL),
+            active: database === DB.ORACLESQL,
+          },
+          {
+            name: databases[DB.GENERIC].name,
+            function: () => setDatabase(DB.GENERIC),
+            active: database === DB.GENERIC,
+          },
+        ],
+        function: () => { },
       },
       language: {
         function: () => setModal(MODAL.LANGUAGE),
@@ -2050,7 +2090,7 @@ export default function ControlPanel({
                   type="light"
                   prefixIcon={
                     saveState === State.LOADING ||
-                    saveState === State.SAVING ? (
+                      saveState === State.SAVING ? (
                       <Spin size="small" />
                     ) : null
                   }
